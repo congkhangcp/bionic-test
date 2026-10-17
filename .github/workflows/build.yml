@@ -1,0 +1,35 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, feat/renamer]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pyinstaller
+
+      - name: Run tests
+        run: pytest
+
+      - name: Build executable
+        run: pyinstaller --onefile renamer.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: renamer-windows
+          path: dist/renamer.exe
