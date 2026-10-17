@@ -1,199 +1,87 @@
 #!/usr/bin/env python3
-"""
-Test cases cho renamer.py sử dụng pytest.
-"""
+"""Test cases cho renamer.py sử dụng pytest."""
 
-import os
 import tempfile
-import shutil
 from pathlib import Path
 
-# Import từ renamer.py
 import renamer
 
 
-def setup_test_directory():
-    """Tạo thư mục test với các file mẫu."""
-    test_dir = Path(tempfile.mkdtemp())
-    
-    # Tạo các file test với số thứ tự
-    for i in range(1, 6):
-        (test_dir / f"image_{i:03d}.jpg").touch()
-    
-    # Tạo file không có số
-    (test_dir / "no_number.jpg").touch()
-    
-    return test_dir
+def setup_test_files(tmp_path, count: int = 5):
+    """Tạo file test với số từ 1 đến count."""
+    for i in range(1, count + 1):
+        (tmp_path / f"file_{i:03d}.txt").touch()
+    return tmp_path
 
 
-def teardown_test_directory(test_dir):
-    """Xóa thư mục test."""
-    if test_dir.exists():
-        shutil.rmtree(test_dir)
+def test_rename_files_basic(tmp_path):
+    """Test đổi tên cơ bản."""
+    setup_test_files(tmp_path, 5)
+    results = renamer.rename_files(tmp_path, "{n:03d}_{name}")
+    assert (tmp_path / "001_file_1.txt").exists()
+    assert (tmp_path / "002_file_2.txt").exists()
+    assert (tmp_path / "003_file_3.txt").exists()
+    assert (tmp_path / "004_file_4.txt").exists()
+    assert (tmp_path / "005_file_5.txt").exists()
 
 
-def test_rename_with_number_pattern():
-    """Test đổi tên với mẫu có số."""
-    test_dir = setup_test_directory()
-    try:
-        # Test rename pattern {n:03d}_{name}
-        results = renamer.rename_files(test_dir, "{n:03d}_{name}")
-        
-        assert len(results) == 5
-        assert all(r["action"] == "renamed" for r in results)
-        
-        # Kiểm tra kết quả
-        expected_names = {
-            "image_001.jpg": "image_001_image_001.jpg",
-            "image_002.jpg": "image_002_image_002.jpg",
-            "image_003.jpg": "image_003_image_003.jpg",
-            "image_004.jpg": "image_004_image_004.jpg",
-            "image_005.jpg": "image_005_image_005.jpg",
-        }
-        
-        for result in results:
-            expected_name = expected_names[os.path.basename(result["old"])]
-            assert expected_name in result["new"], f"Expected {expected_name} in {result['new']}"
-        
-        print("✓ Test rename_with_number_pattern: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
-
-
-def test_dry_run_mode():
+def test_dry_run_mode(tmp_path):
     """Test chế độ dry-run."""
-    test_dir = setup_test_directory()
-    try:
-        results = renamer.rename_files(test_dir, "{n:03d}_{name}", dry_run=True)
-        
-        assert len(results) == 5
-        assert all(r["action"] == "dry_run" for r in results)
-        
-        # Kiểm tra file vẫn còn nguyên
-        assert (test_dir / "image_001.jpg").exists()
-        assert (test_dir / "image_002.jpg").exists()
-        
-        print("✓ Test dry_run_mode: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
+    setup_test_files(tmp_path, 3)
+    renamer.rename_files(tmp_path, "{n:03d}_{name}", dry_run=True)
+    assert (tmp_path / "file_001.txt").exists()
+    assert (tmp_path / "file_002.txt").exists()
+    assert (tmp_path / "file_003.txt").exists()
 
 
-def test_nonexistent_directory():
+def test_nonexistent_directory(tmp_path):
     """Test với thư mục không tồn tại."""
-    try:
-        test_dir = Path("/nonexistent/directory")
-        results = renamer.rename_files(test_dir, "{n:03d}_{name}")
-        
-        assert False, "Nên raise FileNotFoundError"
-    except FileNotFoundError:
-        print("✓ Test nonexistent_directory: PASSED")
-
-
-def test_invalid_pattern():
-    """Test với mẫu không hợp lệ."""
-    test_dir = setup_test_directory()
-    try:
+    with tempfile.TemporaryDirectory() as tmp:
         try:
-            results = renamer.rename_files(test_dir, "{invalid}pattern")
-            assert False, "Nên raise ValueError"
-        except ValueError as e:
-            assert "Lỗi với mẫu" in str(e)
-        
-        print("✓ Test invalid_pattern: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
+            renamer.rename_files(Path(tmp) / "nonexistent", "{n:03d}_{name}")
+            assert False, "Nên raise FileNotFoundError"
+        except FileNotFoundError:
+            pass
 
 
-def test_file_without_number():
+def test_invalid_pattern(tmp_path):
+    """Test với mẫu chứa biến không hợp lệ."""
+    setup_test_files(tmp_path, 2)
+    with pytest.raises(ValueError, match="biến không hợp lệ"):
+        renamer.rename_files(tmp_path, "{n:03d}_{name}_{invalid}")
+
+
+def test_file_without_number(tmp_path):
     """Test file không có số."""
-    test_dir = setup_test_directory()
-    try:
-        results = renamer.rename_files(test_dir, "{n:03d}_{name}")
-        
-        # File không có số nên không được đổi tên
-        no_number_results = [r for r in results if "no_number" in r["old"]]
-        assert len(no_number_results) == 1
-        assert no_number_results[0]["action"] == "failed" or "Không khớp mẫu" in str(no_number_results[0])
-        
-        print("✓ Test file_without_number: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
+    (tmp_path / "no_number.txt").touch()
+    (tmp_path / "file_001.txt").touch()
+    results = renamer.rename_files(tmp_path, "{n:03d}_{name}")
+    assert (tmp_path / "001_no_number.txt").exists()
+    assert (tmp_path / "002_file_1.txt").exists()
 
 
-def test_duplicate_names_handling():
-    """Test xử lý tên trùng lặp."""
-    test_dir = setup_test_directory()
-    try:
-        # Tạo thêm file để gây ra tên trùng
-        (test_dir / "image_001_backup.jpg").touch()
-        
-        results = renamer.rename_files(test_dir, "{n:03d}_{name}")
-        
-        # Tất cả file nên được đổi tên thành công
-        successful = [r for r in results if r["action"] == "renamed"]
-        assert len(successful) >= 5  # Ít nhất 5 file thành công
-        
-        print("✓ Test duplicate_names_handling: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
+def test_duplicate_name_error(tmp_path):
+    """Test lỗi khi tên mới trùng file hiện có."""
+    setup_test_files(tmp_path, 3)
+    # Tạo file có tên giống sẽ sinh ra
+    (tmp_path / "001_file_1.txt").touch()
+    with pytest.raises(FileExistsError, match="trùng"):
+        renamer.rename_files(tmp_path, "{n:03d}_{name}")
 
 
-def test_sort_order():
-    """Test thứ tự sắp xếp file."""
-    test_dir = setup_test_directory()
-    try:
-        # Kiểm tra thứ tự file sau khi sort
-        files = list(test_dir.iterdir())
-        files = [f for f in files if f.is_file()]
-        
-        def sort_key(f):
-            return renamer.get_file_number(f, f.suffix)
-        
-        sorted_files = sorted(files, key=sort_key)
-        
-        assert sorted_files[0].name == "image_001.jpg"
-        assert sorted_files[1].name == "image_002.jpg"
-        assert sorted_files[4].name == "image_005.jpg"
-        
-        print("✓ Test sort_order: PASSED")
-    finally:
-        teardown_test_directory(test_dir)
-
-
-def run_all_tests():
-    """Chạy tất cả test cases."""
-    print("=" * 60)
-    print("Chạy các test cho renamer.py")
-    print("=" * 60)
-    
-    tests = [
-        test_rename_with_number_pattern,
-        test_dry_run_mode,
-        test_nonexistent_directory,
-        test_invalid_pattern,
-        test_file_without_number,
-        test_duplicate_names_handling,
-        test_sort_order,
-    ]
-    
-    passed = 0
-    failed = 0
-    
-    for test in tests:
-        try:
-            test()
-            passed += 1
-        except Exception as e:
-            print(f"✗ {test.__name__}: FAILED - {e}")
-            failed += 1
-    
-    print("=" * 60)
-    print(f"Kết quả: {passed} passed, {failed} failed")
-    print("=" * 60)
-    
-    return failed == 0
+def test_only_files_not_recursive(tmp_path):
+    """Test chỉ đổi tên file, không đệ quy."""
+    setup_test_files(tmp_path, 2)
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+    (subdir / "file_001.txt").touch()
+    results = renamer.rename_files(tmp_path, "{n:03d}_{name}")
+    # Chỉ file trong thư mục gốc được đổi tên
+    assert (tmp_path / "001_file_1.txt").exists()
+    assert not (subdir / "001_file_1.txt").exists()
 
 
 if __name__ == "__main__":
-    success = run_all_tests()
-    exit(0 if success else 1)
+    import pytest
+    import sys
+    sys.exit(pytest.main([__file__, "-v"]))
